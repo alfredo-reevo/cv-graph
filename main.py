@@ -1,8 +1,10 @@
 import cv2
 import numpy as np
 import mediapipe as mp
+import threading
+from webcam import Webcam
 
-cap = cv2.VideoCapture(0)
+cap = Webcam(0).start()
 
 print(f"Camera FPS: {cap.get(cv2.CAP_PROP_FPS)}")
 
@@ -10,7 +12,7 @@ print(f"Camera FPS: {cap.get(cv2.CAP_PROP_FPS)}")
 mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(
     static_image_mode=False,
-    max_num_hands=2,
+    max_num_hands=1,
     min_detection_confidence=0.8,
     min_tracking_confidence=0.8
 )
@@ -42,11 +44,11 @@ while True:
 
     if results.multi_hand_landmarks:
         for hand_landmarks in results.multi_hand_landmarks:
-            mp_drawing.draw_landmarks(
-                frame, 
-                hand_landmarks, 
-                mp_hands.HAND_CONNECTIONS
-            )
+            # mp_drawing.draw_landmarks(
+            #     frame, 
+            #     hand_landmarks, 
+            #     mp_hands.HAND_CONNECTIONS
+            # )
 
             # Retrieve coordinates for index finger tip and thumb tip
             index_tip = hand_landmarks.landmark[8]
@@ -148,5 +150,5 @@ while True:
     elif key == ord('c'):
         vertices = np.array([])
 
-cap.release()
+cap.stop()
 cv2.destroyAllWindows()
