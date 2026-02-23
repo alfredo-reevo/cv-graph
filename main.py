@@ -16,7 +16,10 @@ hands = mp_hands.Hands(
 )
 
 vertices = np.empty((0, 2), dtype=int)
+edges = np.empty((0, 2, 2), dtype=int)
 is_pinching = False
+source_vertex = None
+edge_snap_radius = 30
 eraser_radius = 25
 
 mp_drawing = mp.solutions.drawing_utils
@@ -30,6 +33,9 @@ while True:
 
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = hands.process(rgb_frame)
+
+    for edge in edges:
+        cv2.line(frame, tuple(edge[0]), tuple(edge[1]), (255, 255, 255), 2)
 
     for x, y in vertices:
         cv2.circle(frame, (x, y), 12, (255, 0, 0), cv2.FILLED)
@@ -46,35 +52,42 @@ while True:
             index_tip = hand_landmarks.landmark[8]
             thumb_tip = hand_landmarks.landmark[4]
 
-            # Eraser functionality
-            index_pip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_PIP]
-            middle_tip = hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP]
-            middle_pip = hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_PIP]
-            ring_tip = hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_TIP]
-            ring_pip = hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_PIP]
-            pinky_tip = hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_TIP]
-            pinky_pip = hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_PIP]
-
+            lm = hand_landmarks.landmark
+            
+            ##* Eraser functionality *##
+            
             # Find the palm (centre point of the eraser)
             palm = hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_MCP]
             palm_x, palm_y = int(palm.x * frame.shape[1]), int(palm.y * frame.shape[0])
 
             open_hand = (
-                index_tip.y < index_pip.y and
-                middle_tip.y < middle_pip.y and
-                ring_tip.y < ring_pip.y and
-                pinky_tip.y < pinky_pip.y
+                lm[8].y < lm[7].y < lm[6].y < lm[5].y and  # Index finger
+                lm[12].y < lm[11].y < lm[10].y < lm[9].y and  # Middle finger
+                lm[16].y < lm[15].y < lm[14].y < lm[13].y and  # Ring finger
+                lm[20].y < lm[19].y < lm[18].y < lm[17].y  # Pinky finger
             )
 
             if open_hand:
+                # Eraser enabled
                 cv2.circle(frame, (palm_x, palm_y), eraser_radius, (0, 255, 255), cv2.FILLED)
-                
                 eraser_centre = np.array([palm_x, palm_y])
 
-                vertices = [v for v in vertices if np.linalg.norm(v - eraser_centre) > eraser_radius]
+                if len(edges) > 0:
+                    dist_v1 = np.linalg.norm(edges[:, 0] - eraser_centre, axis=1)
+                    dist_v2 = np.linalg.norm(edges[:, 1] - eraser_centre, axis=1)
+
+                    edge_mask = (dist_v1 > eraser_radius) & (dist_v2 > eraser_radius)
+                    edges = edges[edge_mask]
+
+                if len(vertices) > 0:
+                    distances = np.linalg.norm(vertices - eraser_centre, axis=1)
+                    mask = distances > eraser_radius
+                    vertices = vertices[mask]
 
                 is_pinching = False
+                source_vertex = None
             else:
+                # Pinch detection (vertex creation and edge snapping)
                 thumb_x, thumb_y = int(thumb_tip.x * frame.shape[1]), int(thumb_tip.y * frame.shape[0])
                 index_x, index_y = int(index_tip.x * frame.shape[1]), int(index_tip.y * frame.shape[0])
 
@@ -85,12 +98,40 @@ while True:
                 if length < 25:
                     # pinch gesture detected
                     if not is_pinching:
-                        vertices = np.append(vertices, [[cx, cy]], axis=0) if vertices.size else np.array([[cx, cy]])
                         is_pinching = True
+
+                        # Detect if the pinch is close to an existing vertex
+                        if len(vertices) > 0:
+                            distances = np.linalg.norm(vertices - np.array([cx, cy]), axis=1)
+                            closest_vertex = np.argmin(distances)
+
+                            if distances[closest_vertex] < edge_snap_radius:
+                                source_vertex = tuple(vertices[closest_vertex])
+                            else:
+                                vertices = np.append(vertices, [[cx, cy]], axis=0)
+                        else:
+                            vertices = np.append(vertices, [[cx, cy]], axis=0)
+
                     cv2.circle(frame, (cx, cy), 5, (0, 255, 0), cv2.FILLED)
+
+                    if source_vertex is not None:
+                        cv2.line(frame, source_vertex, (cx, cy), (255, 255, 255), 2)
                 else:
                     # no pinch gesture
+                    if is_pinching and source_vertex is not None:
+                        if len(vertices) > 0:
+                            distances = np.linalg.norm(vertices - np.array([cx, cy]), axis=1)
+                            closest_vertex = np.argmin(distances)
+
+                            if distances[closest_vertex] < edge_snap_radius:
+                                target_vertex = tuple(vertices[closest_vertex])
+                                if target_vertex != source_vertex:
+                                    new_edge = np.array([[source_vertex, target_vertex]])
+                                    edges = np.append(edges, new_edge, axis=0)
+                    
                     is_pinching = False
+                    source_vertex = None
+                    
                     cv2.circle(frame, (cx, cy), 5, (0, 0, 255), cv2.FILLED)
 
 
