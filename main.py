@@ -36,8 +36,39 @@ while True:
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = hands.process(rgb_frame)
 
+    pair_counts = {}
+
     for edge in edges:
-        cv2.line(frame, tuple(edge[0]), tuple(edge[1]), (255, 255, 255), 2)
+        v1 = edge[0]
+        v2 = edge[1]
+
+        if v1[0] < v2[0] or (v1[0] == v2[0] and v1[1] < v2[1]):
+            key = (tuple(v1), tuple(v2))
+        else:
+            key = (tuple(v2), tuple(v1))
+
+        count = pair_counts.get(key, 0)
+        pair_counts[key] = count + 1
+
+        if count == 0:
+            cv2.line(frame, tuple(v1), tuple(v2), (255, 255, 255), 2)
+        else:
+            delta = v2 - v1
+            distance = np.linalg.norm(delta)
+
+            if distance > 0:
+                normal = np.array([-delta[1], delta[0]]) / distance
+                multiplier = ((count+1) // 2) * (1 if count % 2 != 0 else -1)
+                offset = 40 * multiplier
+
+                mid = (v1 + v2) // 2
+                offset_point = mid + (normal * offset)
+
+                t = np.linspace(0, 1, 20).reshape(-1, 1)
+                curve = ((1-t)**2) * v1 + 2*(1-t)*t*offset_point + t**2 * v2
+
+                curve = np.int32(curve).reshape(-1, 1, 2)
+                cv2.polylines(frame, [curve], False, (255, 255, 255), 2)
 
     for x, y in vertices:
         cv2.circle(frame, (x, y), 12, (255, 0, 0), cv2.FILLED)
